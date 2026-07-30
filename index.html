@@ -468,6 +468,7 @@
       newsTickerLabel:"نص الشريط الإخباري", newsTickerPlaceholder:"اكتب إعلانًا أو خبرًا يظهر للجميع...",
       saveNews:"حفظ الشريط", newsSaved:"تم حفظ الشريط الإخباري.", newsPermCol:"صلاحية الشريط",
       addNewsItem:"إضافة خبر", newsItemActive:"نشط", noNewsItems:"لا توجد أخبار مضافة بعد.",
+      saveFailed:"تعذّر حفظ البيانات. تحقق من الاتصال وحاول مرة أخرى.", confirmNewPassword:"تأكيد كلمة المرور الجديدة", passwordMismatch:"كلمتا المرور غير متطابقتين.",
       custRequiredForCustomer:"عند تسجيل عميل جديد، اسمه ورقم هاتفه إلزاميان."
     },
     en: {
@@ -533,6 +534,7 @@
       newsTickerLabel:"Ticker text", newsTickerPlaceholder:"Write an announcement visible to everyone...",
       saveNews:"Save ticker", newsSaved:"News ticker saved.", newsPermCol:"Ticker permission",
       addNewsItem:"Add news item", newsItemActive:"Active", noNewsItems:"No news items added yet.",
+      saveFailed:"Couldn't save the data. Check your connection and try again.", confirmNewPassword:"Confirm new password", passwordMismatch:"The passwords don't match.",
       custRequiredForCustomer:"When registering a new customer, their name and phone number are required."
     }
   };
@@ -1280,7 +1282,10 @@
         if(!displayName || !username || !password){ alert(t("fillAll")); return; }
         if(users.some(u=>u.username===username)){ alert(t("usernameTaken")); return; }
         users.push({ username, password, displayName, role:"agent", canEditNews:false, createdAt:Date.now() });
-        saveUsers().then(()=>renderView());
+        saveUsers().then(ok=>{
+          if(ok) renderView();
+          else { users = users.filter(u=>u.username!==username); alert(t("saveFailed")); }
+        });
       });
       document.querySelectorAll("[data-uact]").forEach(btn=>{
         btn.addEventListener("click", ()=>{
@@ -1457,6 +1462,7 @@
         <div class="modal-box">
           <h3>${t("changePasswordTitle")}</h3>
           <div class="field"><label>${t("newPassword")}</label><input id="modal-newpw" type="password" autofocus></div>
+          <div class="field"><label>${t("confirmNewPassword")}</label><input id="modal-newpw2" type="password"></div>
           <div class="row-actions" style="justify-content:flex-end;">
             <button class="btn btn-ghost" id="modal-cancel">${t("cancel")}</button>
             <button class="btn btn-success" id="modal-confirm">${t("save")}</button>
@@ -1467,11 +1473,16 @@
     document.getElementById("modal-overlay").addEventListener("click", (e)=>{ if(e.target.id==="modal-overlay") closeModal(); });
     document.getElementById("modal-confirm").addEventListener("click", ()=>{
       const pw = document.getElementById("modal-newpw").value;
-      if(!pw){ closeModal(); return; }
+      const pw2 = document.getElementById("modal-newpw2").value;
+      if(!pw) { closeModal(); return; }
+      if(pw !== pw2){ alert(t("passwordMismatch")); return; }
       const u = users.find(x=>x.username===currentUser.username);
+      const prevPw = u.password;
       u.password = pw; currentUser.password = pw;
-      closeModal();
-      saveUsers().then(()=> alert(t("passwordChanged")));
+      saveUsers().then(ok=>{
+        if(ok){ closeModal(); alert(t("passwordChanged")); }
+        else { u.password = prevPw; currentUser.password = prevPw; alert(t("saveFailed")); }
+      });
     });
   }
 
@@ -1482,6 +1493,7 @@
         <div class="modal-box">
           <h3>${t("newPasswordFor")} ${esc(u.displayName||u.username)}</h3>
           <div class="field"><label>${t("newPassword")}</label><input id="modal-newpw" type="password" autofocus></div>
+          <div class="field"><label>${t("confirmNewPassword")}</label><input id="modal-newpw2" type="password"></div>
           <div class="row-actions" style="justify-content:flex-end;">
             <button class="btn btn-ghost" id="modal-cancel">${t("cancel")}</button>
             <button class="btn btn-success" id="modal-confirm">${t("save")}</button>
@@ -1492,17 +1504,22 @@
     document.getElementById("modal-overlay").addEventListener("click", (e)=>{ if(e.target.id==="modal-overlay") closeModal(); });
     document.getElementById("modal-confirm").addEventListener("click", ()=>{
       const pw = document.getElementById("modal-newpw").value;
+      const pw2 = document.getElementById("modal-newpw2").value;
       if(!pw){ closeModal(); return; }
+      if(pw !== pw2){ alert(t("passwordMismatch")); return; }
+      const prevPw = u.password;
       u.password = pw;
-      closeModal();
-      saveUsers().then(()=> alert(t("passwordChanged")));
+      saveUsers().then(ok=>{
+        if(ok){ closeModal(); alert(t("passwordChanged")); }
+        else { u.password = prevPw; alert(t("saveFailed")); }
+      });
     });
   }
 
   /* ================= persistence helpers ================= */
-  async function saveUsers(){ await sSet(USERS_KEY, users, true); }
-  async function saveSettings(){ await sSet(SETTINGS_KEY, settings, true); }
-  async function saveAgentData(){ await sSet(agentKey(currentUser.username), agentData, true); }
+  async function saveUsers(){ return await sSet(USERS_KEY, users, true); }
+  async function saveSettings(){ return await sSet(SETTINGS_KEY, settings, true); }
+  async function saveAgentData(){ return await sSet(agentKey(currentUser.username), agentData, true); }
 
   /* ================= auth flow ================= */
   function showSetupCard(){ document.getElementById("card-setup").classList.remove("hidden"); document.getElementById("card-login").classList.add("hidden"); }
@@ -1540,7 +1557,10 @@
       const admin = { username, password, displayName, role:"admin", createdAt:Date.now() };
       users = [admin];
       currentUser = admin;
-      Promise.all([saveUsers(), saveSettings()]).then(enterApp);
+      Promise.all([saveUsers(), saveSettings()]).then(([ok1, ok2])=>{
+        if(ok1 && ok2){ enterApp(); }
+        else { currentUser = null; users = []; errBox.textContent = t("saveFailed"); errBox.classList.remove("hidden"); }
+      });
     });
 
     document.getElementById("form-login").addEventListener("submit", (e)=>{
